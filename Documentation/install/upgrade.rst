@@ -320,6 +320,50 @@ IMPORTANT: Changes required before upgrading to 1.8.0
   .. note:: The ENI IPAM mode automatically derives the native routing CIDR so
             no action is required.
 
+Upgrading from >=1.7.0 to 1.8.y
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#. Since Cilium 1.5, the conntrack table size parameter
+   ``bpf-ct-global-tcp-max`` was set to the default value ``1000000`` to retain
+   backwards compatibility with previous versions. In Cilium 1.8 the default
+   value is set to 512K by default in order to reduce the agent memory
+   consumption. This means at maximum 512K concurrent TCP connections across all
+   endpoints are supported by default. To prevent from breaking established
+   connections, ``bpf-ct-global-tcp-max`` must be manually set to
+   ``1000000`` (or any other sufficiently large value) before upgrading.
+
+   To check whether any action is required the following command can be used to
+   check the currently configured maximum number of entries:
+
+   .. code:: bash
+
+      sudo bpf-map info /sys/fs/bpf/tc/globals/cilium_ct4_global | grep "Max entries:"
+
+   If the maximum number is 524288 or below, no action is required. If the
+   number is above 100000 or any other value above 524288,
+   ``bpf-ct-global-tcp-max`` needs to be adjusted to the given value in the
+   `ConfigMap`:
+
+.. tabs::
+  .. group-tab:: kubectl
+
+    .. parsed-literal::
+
+      helm template cilium \\
+      --namespace=kube-system \\
+      ...
+      --set global.bpf.ctTcpMax=10000
+      ...
+      > cilium.yaml
+      kubectl apply -f cilium.yaml
+
+  .. group-tab:: Helm
+
+    .. parsed-literal::
+
+      helm upgrade cilium --namespace=kube-system \\
+      --set global.bpf.ctTcpMax=100000
+
 Deprecated options
 ~~~~~~~~~~~~~~~~~~
 
