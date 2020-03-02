@@ -246,16 +246,18 @@ static __always_inline int handle_ipv6(struct __ctx_buff *ctx,
 	return CTX_ACT_OK;
 }
 
-__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV6_FROM_LXC) int tail_handle_ipv6(struct __ctx_buff *ctx)
+__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV6_FROM_LXC)
+int tail_handle_ipv6(struct __ctx_buff *ctx)
 {
-	__u32 proxy_identity = ctx->cb[CB_SRC_IDENTITY];
+	__u32 proxy_identity = ctx_load_meta(ctx, CB_SRC_IDENTITY);
 	int ret;
 
-	ctx->cb[CB_SRC_IDENTITY] = 0;
+	ctx_store_meta(ctx, CB_SRC_IDENTITY, 0);
+
 	ret = handle_ipv6(ctx, proxy_identity);
 	if (IS_ERR(ret))
-		return send_drop_notify_error(ctx, proxy_identity, ret, CTX_ACT_DROP, METRIC_INGRESS);
-
+		return send_drop_notify_error(ctx, proxy_identity, ret,
+					      CTX_ACT_DROP, METRIC_INGRESS);
 	return ret;
 }
 #endif /* ENABLE_IPV6 */
@@ -429,16 +431,17 @@ static __always_inline int handle_ipv4(struct __ctx_buff *ctx,
 #endif
 }
 
-__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_FROM_LXC) int tail_handle_ipv4(struct __ctx_buff *ctx)
+__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_FROM_LXC)
+int tail_handle_ipv4(struct __ctx_buff *ctx)
 {
-	__u32 proxy_identity = ctx->cb[CB_SRC_IDENTITY];
+	__u32 proxy_identity = ctx_load_meta(ctx, CB_SRC_IDENTITY);
 	int ret;
 
-	ctx->cb[CB_SRC_IDENTITY] = 0;
+	ctx_store_meta(ctx, CB_SRC_IDENTITY, 0);
+
 	ret = handle_ipv4(ctx, proxy_identity);
 	if (IS_ERR(ret))
 		return send_drop_notify_error(ctx, proxy_identity, ret, CTX_ACT_DROP, METRIC_INGRESS);
-
 	return ret;
 }
 
@@ -456,7 +459,7 @@ static __always_inline int do_netdev_encrypt_pools(struct __ctx_buff *ctx)
 	struct iphdr *iphdr;
 	__be32 sum;
 
-	tunnel_endpoint = ctx->cb[4];
+	tunnel_endpoint = ctx_load_meta(ctx, 4);
 	ctx->mark = 0;
 
 	if (!revalidate_data(ctx, &data, &data_end, &iphdr)) {
@@ -590,7 +593,7 @@ static __always_inline int do_netdev_encrypt_encap(struct __ctx_buff *ctx)
 	__u32 seclabel, tunnel_endpoint = 0;
 
 	seclabel = get_identity(ctx);
-	tunnel_endpoint = ctx->cb[4];
+	tunnel_endpoint = ctx_load_meta(ctx, 4);
 	ctx->mark = 0;
 
 	bpf_clear_cb(ctx);
@@ -647,16 +650,15 @@ static __always_inline int do_netdev(struct __ctx_buff *ctx, __u16 proto)
 	switch (proto) {
 #ifdef ENABLE_IPV6
 	case bpf_htons(ETH_P_IPV6):
-		ctx->cb[CB_SRC_IDENTITY] = identity;
+		ctx_store_meta(ctx, CB_SRC_IDENTITY, identity);
 		ep_tail_call(ctx, CILIUM_CALL_IPV6_FROM_LXC);
 		/* See comment below for IPv4. */
 		return send_drop_notify_error(ctx, identity, DROP_MISSED_TAIL_CALL,
 					      CTX_ACT_OK, METRIC_INGRESS);
 #endif
-
 #ifdef ENABLE_IPV4
 	case bpf_htons(ETH_P_IP):
-		ctx->cb[CB_SRC_IDENTITY] = identity;
+		ctx_store_meta(ctx, CB_SRC_IDENTITY, identity);
 		ep_tail_call(ctx, CILIUM_CALL_IPV4_FROM_LXC);
 		/* We are not returning an error here to always allow traffic to
 		 * the stack in case maps have become unavailable.
@@ -666,7 +668,6 @@ static __always_inline int do_netdev(struct __ctx_buff *ctx, __u16 proto)
 		return send_drop_notify_error(ctx, identity, DROP_MISSED_TAIL_CALL,
 		                              CTX_ACT_OK, METRIC_INGRESS);
 #endif
-
 	default:
 		/* Pass unknown traffic to the stack */
 		ret = CTX_ACT_OK;
@@ -686,12 +687,12 @@ int from_netdev(struct __ctx_buff *ctx)
 		return CTX_ACT_OK;
 
 #ifdef ENABLE_MASQUERADE
-	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_PRE, ctx->ifindex);
+	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_PRE, ctx_get_ifindex(ctx));
 	ret = snat_process(ctx, BPF_PKT_DIR);
 	if (ret != CTX_ACT_OK) {
 		return ret;
 	}
-	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_POST, ctx->ifindex);
+	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_POST, ctx_get_ifindex(ctx));
 #endif /* ENABLE_MASQUERADE */
 
 	return do_netdev(ctx, proto);
@@ -715,10 +716,10 @@ int to_netdev(struct __ctx_buff *ctx)
 	if (!validate_ethertype(ctx, &proto))
 		/* Pass unknown traffic to the stack */
 		return CTX_ACT_OK;
-	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_PRE, ctx->ifindex);
+	cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_PRE, ctx_get_ifindex(ctx));
 	ret = snat_process(ctx, BPF_PKT_DIR);
 	if (!ret)
-		cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_POST, ctx->ifindex);
+		cilium_dbg_capture(ctx, DBG_CAPTURE_SNAT_POST, ctx_get_ifindex(ctx));
 #endif /* ENABLE_MASQUERADE */
 	return ret;
 }

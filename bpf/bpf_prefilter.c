@@ -10,13 +10,12 @@
 
 #include <linux/if_ether.h>
 
-#define SKIP_CALLS_MAP
-
 #include "lib/utils.h"
 #include "lib/common.h"
 #include "lib/maps.h"
 #include "lib/eps.h"
 #include "lib/events.h"
+#include "lib/nodeport.h"
 
 #ifndef HAVE_LPM_MAP_TYPE
 # undef CIDR4_LPM_PREFILTER
@@ -155,21 +154,22 @@ static __always_inline int check_filters(struct __ctx_buff *ctx)
 	void *data_end = ctx_data_end(ctx);
 	void *data = ctx_data(ctx);
 	struct ethhdr *eth = data;
+	int ret = CTX_ACT_OK;
 	__u16 proto;
 
 	if (ctx_no_room(eth + 1, data_end))
 		return CTX_ACT_DROP;
+	if (ctx_adjust_meta(ctx, -META_PIVOT))
+		return CTX_ACT_OK;
 
 	proto = eth->h_proto;
 	if (proto == bpf_htons(ETH_P_IP))
-		return check_v4(ctx);
+		ret = check_v4(ctx);
 	else if (proto == bpf_htons(ETH_P_IPV6))
-		return check_v6(ctx);
-	else
-		/* Pass the rest to stack, we might later do more
-		 * fine-grained filtering here.
-		 */
-		return CTX_ACT_OK;
+		ret = check_v6(ctx);
+
+	ctx_adjust_meta(ctx, META_PIVOT);
+	return ret;
 }
 
 __section("from-netdev")

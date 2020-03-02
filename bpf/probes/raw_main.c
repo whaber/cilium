@@ -10,6 +10,7 @@
 
 #include "raw_insn.h"
 
+#include "bpf/ctx/skb.h"
 #include "bpf/api.h"
 
 #define BPF_MAX_FIXUPS	64
