@@ -291,6 +291,10 @@ function xdp_load()
 	SEC=$6
 	CIDR_MAP=$7
 
+	NODE_MAC=$(ip link show $DEV | grep ether | awk '{print $2}')
+	NODE_MAC="{.addr=$(mac2array $NODE_MAC)}"
+
+	OPTS="${OPTS} -DNODE_MAC=${NODE_MAC} -DCALLS_MAP=cilium_calls_xdp -DSECLABEL=0"
 	bpf_compile $IN $OUT obj "$OPTS"
 
 	ip link set dev $DEV $MODE off

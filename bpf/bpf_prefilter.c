@@ -81,13 +81,37 @@ struct bpf_elf_map __section_maps CIDR6_LMAP_NAME = {
 #endif /* CIDR6_LPM_PREFILTER */
 #endif /* CIDR6_FILTER */
 
-static __always_inline int check_v4_endpoint(struct iphdr *ipv4_hdr)
+#ifdef ENABLE_IPV4
+#ifdef ENABLE_NODEPORT
+__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV4_FROM_LXC)
+int tail_lb_ipv4(struct __ctx_buff *ctx)
 {
-	if (lookup_ip4_endpoint(ipv4_hdr))
-		return CTX_ACT_OK;
+	int ret = CTX_ACT_OK;
 
-	return CTX_ACT_DROP;
+	if (!bpf_skip_nodeport(ctx)) {
+		ret = nodeport_lb4(ctx, 0);
+		if (IS_ERR(ret))
+			return send_drop_notify_error(ctx, 0, ret, CTX_ACT_DROP,
+						      METRIC_INGRESS);
+	}
+
+	return ret;
 }
+
+static __always_inline int check_v4_lb(struct __ctx_buff *ctx,
+				       struct iphdr *ipv4_hdr)
+{
+	ep_tail_call(ctx, CILIUM_CALL_IPV4_FROM_LXC);
+	return send_drop_notify_error(ctx, 0, DROP_MISSED_TAIL_CALL, CTX_ACT_DROP,
+				      METRIC_INGRESS);
+}
+#else
+static __always_inline int check_v4_lb(struct __ctx_buff *ctx,
+				       struct iphdr *ipv4_hdr)
+{
+	return CTX_ACT_OK;
+}
+#endif /* ENABLE_NODEPORT */
 
 static __always_inline int check_v4(struct __ctx_buff *ctx)
 {
@@ -109,19 +133,42 @@ static __always_inline int check_v4(struct __ctx_buff *ctx)
 	else
 #endif /* CIDR4_LPM_PREFILTER */
 		return map_lookup_elem(&CIDR4_HMAP_NAME, &pfx) ?
-		       CTX_ACT_DROP : check_v4_endpoint(ipv4_hdr);
+		       CTX_ACT_DROP : check_v4_lb(ctx, ipv4_hdr);
 #else
-	return check_v4_endpoint(ipv4_hdr);
+	return check_v4_lb(ctx, ipv4_hdr);
 #endif /* CIDR4_FILTER */
 }
+#endif /* ENABLE_IPV4 */
 
-static __always_inline int check_v6_endpoint(struct ipv6hdr *ipv6_hdr)
+#ifdef ENABLE_IPV6
+#ifdef ENABLE_NODEPORT
+__section_tail(CILIUM_MAP_CALLS, CILIUM_CALL_IPV6_FROM_LXC)
+int tail_lb_ipv6(struct __ctx_buff *ctx)
 {
-	if (lookup_ip6_endpoint(ipv6_hdr))
-		return CTX_ACT_OK;
+	int ret = CTX_ACT_OK;
 
-	return CTX_ACT_DROP;
+	if (!bpf_skip_nodeport(ctx)) {
+		ret = nodeport_lb6(ctx, 0);
+		if (IS_ERR(ret))
+			return send_drop_notify_error(ctx, 0, ret, CTX_ACT_DROP,
+						      METRIC_INGRESS);
+	}
+
+	return ret;
 }
+
+static __always_inline int check_v6_lb(struct __ctx_buff *ctx)
+{
+	ep_tail_call(ctx, CILIUM_CALL_IPV6_FROM_LXC);
+	return send_drop_notify_error(ctx, 0, DROP_MISSED_TAIL_CALL, CTX_ACT_DROP,
+				      METRIC_INGRESS);
+}
+#else
+static __always_inline int check_v6_lb(struct __ctx_buff *ctx)
+{
+	return CTX_ACT_OK;
+}
+#endif /* ENABLE_NODEPORT */
 
 static __always_inline int check_v6(struct __ctx_buff *ctx)
 {
@@ -143,32 +190,41 @@ static __always_inline int check_v6(struct __ctx_buff *ctx)
 	else
 #endif /* CIDR6_LPM_PREFILTER */
 		return map_lookup_elem(&CIDR6_HMAP_NAME, &pfx) ?
-		       CTX_ACT_DROP : check_v6_endpoint(ipv6_hdr);
+		       CTX_ACT_DROP : check_v6_lb(ctx);
 #else
-	return check_v6_endpoint(ipv6_hdr);
+	return check_v6_lb(ctx);
 #endif /* CIDR6_FILTER */
 }
+#endif /* ENABLE_IPV6 */
 
 static __always_inline int check_filters(struct __ctx_buff *ctx)
 {
-	void *data_end = ctx_data_end(ctx);
-	void *data = ctx_data(ctx);
-	struct ethhdr *eth = data;
 	int ret = CTX_ACT_OK;
 	__u16 proto;
 
-	if (ctx_no_room(eth + 1, data_end))
-		return CTX_ACT_DROP;
-	if (ctx_adjust_meta(ctx, -META_PIVOT))
+	if (!validate_ethertype(ctx, &proto))
 		return CTX_ACT_OK;
+//	if (ctx_adjust_meta(ctx, -META_PIVOT))
+//		return CTX_ACT_OK;
 
-	proto = eth->h_proto;
-	if (proto == bpf_htons(ETH_P_IP))
+	bpf_skip_nodeport_clear(ctx);
+
+	switch (proto) {
+#ifdef ENABLE_IPV4
+	case bpf_htons(ETH_P_IP):
 		ret = check_v4(ctx);
-	else if (proto == bpf_htons(ETH_P_IPV6))
+		break;
+#endif /* ENABLE_IPV4 */
+#ifdef ENABLE_IPV6
+	case bpf_htons(ETH_P_IPV6):
 		ret = check_v6(ctx);
+		break;
+#endif /* ENABLE_IPV6 */
+	default:
+		break;
+	}
 
-	ctx_adjust_meta(ctx, META_PIVOT);
+//	ctx_adjust_meta(ctx, META_PIVOT);
 	return ret;
 }
 
