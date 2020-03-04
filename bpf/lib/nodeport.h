@@ -96,6 +96,18 @@ static __always_inline void bpf_mark_snat_done(struct __ctx_buff *ctx)
 #endif
 }
 
+static __always_inline bool bpf_skip_recirculation(struct __ctx_buff *ctx)
+{
+	/* From XDP layer, we do not go through an egress hook from
+	 * here, hence nothing to be skipped.
+	 */
+#if __ctx_is == __ctx_skb
+	return ctx->tc_index & TC_INDEX_F_SKIP_RECIRCULATION;
+#else
+	return false;
+#endif
+}
+
 #ifdef ENABLE_IPV6
 static __always_inline bool nodeport_uses_dsr6(const struct ipv6_ct_tuple *tuple)
 {
@@ -641,7 +653,7 @@ static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex
 				return DROP_WRITE_ERROR;
 		}
 	} else {
-		if (!(ctx->tc_index & TC_INDEX_F_SKIP_RECIRCULATION)) {
+		if (!bpf_skip_recirculation(ctx)) {
 			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV6_FROM_LXC);
 			return DROP_MISSED_TAIL_CALL;
@@ -1195,7 +1207,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 			return DROP_WRITE_ERROR;
 		}
 	} else {
-		if (!(ctx->tc_index & TC_INDEX_F_SKIP_RECIRCULATION)) {
+		if (!bpf_skip_recirculation(ctx)) {
 			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV4_FROM_LXC);
 			return DROP_MISSED_TAIL_CALL;
