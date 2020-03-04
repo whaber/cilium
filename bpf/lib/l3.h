@@ -56,7 +56,8 @@ static __always_inline int ipv4_l3(struct __ctx_buff *ctx, int l3_off,
 	return CTX_ACT_OK;
 }
 
-#ifdef ENABLE_IPV6
+#ifndef SKIP_POLICY_MAP
+# ifdef ENABLE_IPV6
 static __always_inline int ipv6_local_delivery(struct __ctx_buff *ctx, int l3_off,
 					       int l4_off, __u32 seclabel,
 					       struct ipv6hdr *ip6, __u8 nexthdr,
@@ -74,27 +75,25 @@ static __always_inline int ipv6_local_delivery(struct __ctx_buff *ctx, int l3_of
 	ret = ipv6_l3(ctx, l3_off, (__u8 *) &router_mac, (__u8 *) &lxc_mac, direction);
 	if (ret != CTX_ACT_OK)
 		return ret;
-
-#if defined LOCAL_DELIVERY_METRICS
+#  if defined LOCAL_DELIVERY_METRICS
 	/*
 	 * Special LXC case for updating egress forwarding metrics.
 	 * Note that the packet could still be dropped but it would show up
 	 * as an ingress drop counter in metrics.
 	 */
 	update_metrics(ctx_full_len(ctx), direction, REASON_FORWARDED);
-#endif
-
-#if defined USE_BPF_PROG_FOR_INGRESS_POLICY && !defined FORCE_LOCAL_POLICY_EVAL_AT_SOURCE
+#  endif
+#  if defined USE_BPF_PROG_FOR_INGRESS_POLICY && !defined FORCE_LOCAL_POLICY_EVAL_AT_SOURCE
 	ctx->mark = (seclabel << 16) | MARK_MAGIC_IDENTITY;
 	return redirect_peer(ep->ifindex, 0);
-#else
+#  else
 	ctx_store_meta(ctx, CB_SRC_LABEL, seclabel);
 	ctx_store_meta(ctx, CB_IFINDEX, ep->ifindex);
 	tail_call(ctx, &POLICY_CALL_MAP, ep->lxc_id);
 	return DROP_MISSED_TAIL_CALL;
-#endif
+#  endif
 }
-#endif /* ENABLE_IPV6 */
+# endif /* ENABLE_IPV6 */
 
 static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_off, int l4_off,
 					       __u32 seclabel, struct iphdr *ip4,
@@ -110,26 +109,25 @@ static __always_inline int ipv4_local_delivery(struct __ctx_buff *ctx, int l3_of
 	ret = ipv4_l3(ctx, l3_off, (__u8 *) &router_mac, (__u8 *) &lxc_mac, ip4);
 	if (ret != CTX_ACT_OK)
 		return ret;
-
-#if defined LOCAL_DELIVERY_METRICS
+# if defined LOCAL_DELIVERY_METRICS
 	/*
 	 * Special LXC case for updating egress forwarding metrics.
 	 * Note that the packet could still be dropped but it would show up
 	 * as an ingress drop counter in metrics.
 	 */
 	update_metrics(ctx_full_len(ctx), direction, REASON_FORWARDED);
-#endif
-
-#if defined USE_BPF_PROG_FOR_INGRESS_POLICY && !defined FORCE_LOCAL_POLICY_EVAL_AT_SOURCE
+# endif
+# if defined USE_BPF_PROG_FOR_INGRESS_POLICY && !defined FORCE_LOCAL_POLICY_EVAL_AT_SOURCE
 	ctx->mark = (seclabel << 16) | MARK_MAGIC_IDENTITY;
 	return redirect_peer(ep->ifindex, 0);
-#else
+# else
 	ctx_store_meta(ctx, CB_SRC_LABEL, seclabel);
 	ctx_store_meta(ctx, CB_IFINDEX, ep->ifindex);
 	tail_call(ctx, &POLICY_CALL_MAP, ep->lxc_id);
 	return DROP_MISSED_TAIL_CALL;
-#endif
+# endif
 }
+#endif /* SKIP_POLICY_MAP */
 
 static __always_inline __u8 get_encrypt_key(__u32 ctx)
 {

@@ -25,6 +25,11 @@ xdp_load_bytes(struct xdp_md *ctx, __u32 off, void *to, const __u32 len)
 	void *data_end = ctx_data_end(ctx);
 	void *data = ctx_data(ctx) + off;
 
+	__builtin_memset(to, 0, len);
+
+	build_bug_on(len > 0xff);
+	if (unlikely(off > 0xff))
+		return -EFAULT;
 	if (ctx_no_room(data + len, data_end))
 		return -EFAULT;
 
@@ -39,6 +44,9 @@ xdp_store_bytes(struct xdp_md *ctx, __u32 off, const void *from,
 	void *data_end = ctx_data_end(ctx);
 	void *data = ctx_data(ctx) + off;
 
+	build_bug_on(len > 0xff);
+	if (unlikely(off > 0xff))
+		return -EFAULT;
 	if (ctx_no_room(data + len, data_end))
 		return -EFAULT;
 
@@ -159,7 +167,7 @@ ctx_full_len(struct xdp_md *ctx)
 static __always_inline __maybe_unused __overloadable void
 ctx_store_meta(struct xdp_md *ctx, const __u32 off, __u32 datum)
 {
-	__u32 *data_meta = ctx_data_meta(ctx);
+	volatile __u32 *data_meta = ctx_data_meta(ctx);
 	void *data = ctx_data(ctx);
 
 	if (!ctx_no_room(data_meta + off + 1, data))
@@ -172,7 +180,7 @@ ctx_store_meta(struct xdp_md *ctx, const __u32 off, __u32 datum)
 static __always_inline __maybe_unused __overloadable __u32
 ctx_load_meta(struct xdp_md *ctx, const __u32 off)
 {
-	__u32 *data_meta = ctx_data_meta(ctx);
+	volatile __u32 *data_meta = ctx_data_meta(ctx);
 	void *data = ctx_data(ctx);
 
 	if (!ctx_no_room(data_meta + off + 1, data))

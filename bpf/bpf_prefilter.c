@@ -10,6 +10,8 @@
 
 #include <linux/if_ether.h>
 
+#define SKIP_POLICY_MAP 1
+
 #include "lib/utils.h"
 #include "lib/common.h"
 #include "lib/maps.h"
