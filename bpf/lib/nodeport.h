@@ -9,6 +9,8 @@
 
 #include "nat.h"
 #include "lb.h"
+#include "common.h"
+#include "overloadable.h"
 #include "conntrack.h"
 #include "csum.h"
 #include "encap.h"
@@ -21,6 +23,24 @@
 # undef ENABLE_NODEPORT
 # undef ENABLE_MASQUERADE
 #endif
+
+static __always_inline __maybe_unused void
+bpf_skip_nodeport_clear(struct __ctx_buff *ctx)
+{
+	ctx_skip_nodeport_clear(ctx);
+}
+
+static __always_inline __maybe_unused void
+bpf_skip_nodeport_set(struct __ctx_buff *ctx)
+{
+	ctx_skip_nodeport_set(ctx);
+}
+
+static __always_inline __maybe_unused bool
+bpf_skip_nodeport(struct __ctx_buff *ctx)
+{
+	return ctx_skip_nodeport(ctx);
+}
 
 #ifdef ENABLE_NODEPORT
 #ifdef ENABLE_IPV4
@@ -52,16 +72,7 @@ struct dsr_opt_v6 {
 	__be32 port;
 };
 #endif /* ENABLE_IPV6 */
-#endif /* ENABLE_NODEPORT */
 
-static __always_inline void bpf_clear_nodeport(struct __ctx_buff *ctx)
-{
-#ifdef ENABLE_NODEPORT
-	ctx->tc_index &= ~TC_INDEX_F_SKIP_NODEPORT;
-#endif
-}
-
-#ifdef ENABLE_NODEPORT
 static __always_inline bool nodeport_uses_dsr(__u8 nexthdr)
 {
 # if defined(ENABLE_DSR) && !defined(ENABLE_DSR_HYBRID)
@@ -75,15 +86,6 @@ static __always_inline bool nodeport_uses_dsr(__u8 nexthdr)
 # endif
 }
 
-static __always_inline bool bpf_skip_nodeport(struct __ctx_buff *ctx)
-{
-	volatile __u32 tc_index = ctx->tc_index;
-	ctx->tc_index &= ~TC_INDEX_F_SKIP_NODEPORT;
-	return tc_index & TC_INDEX_F_SKIP_NODEPORT;
-}
-#endif /* ENABLE_NODEPORT */
-
-#ifdef ENABLE_NODEPORT
 static __always_inline void bpf_mark_snat_done(struct __ctx_buff *ctx)
 {
 	/* From XDP layer, we do not go through an egress hook from
@@ -363,7 +365,7 @@ int tail_nodeport_nat_ipv6(struct __ctx_buff *ctx)
 		 * done inside a tail call here.
 		 */
 		if (dir == NAT_DIR_INGRESS) {
-			ctx->tc_index |= TC_INDEX_F_SKIP_NODEPORT;
+			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV6_FROM_LXC);
 			ret = DROP_MISSED_TAIL_CALL;
 		}
@@ -640,7 +642,7 @@ static __always_inline int rev_nodeport_lb6(struct __ctx_buff *ctx, int *ifindex
 		}
 	} else {
 		if (!(ctx->tc_index & TC_INDEX_F_SKIP_RECIRCULATION)) {
-			ctx->tc_index |= TC_INDEX_F_SKIP_NODEPORT;
+			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV6_FROM_LXC);
 			return DROP_MISSED_TAIL_CALL;
 		}
@@ -917,7 +919,7 @@ int tail_nodeport_nat_ipv4(struct __ctx_buff *ctx)
 		 * done inside a tail call here.
 		 */
 		if (dir == NAT_DIR_INGRESS) {
-			ctx->tc_index |= TC_INDEX_F_SKIP_NODEPORT;
+			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV4_FROM_LXC);
 			ret = DROP_MISSED_TAIL_CALL;
 		}
@@ -1194,7 +1196,7 @@ static __always_inline int rev_nodeport_lb4(struct __ctx_buff *ctx, int *ifindex
 		}
 	} else {
 		if (!(ctx->tc_index & TC_INDEX_F_SKIP_RECIRCULATION)) {
-			ctx->tc_index |= TC_INDEX_F_SKIP_NODEPORT;
+			bpf_skip_nodeport_set(ctx);
 			ep_tail_call(ctx, CILIUM_CALL_IPV4_FROM_LXC);
 			return DROP_MISSED_TAIL_CALL;
 		}
