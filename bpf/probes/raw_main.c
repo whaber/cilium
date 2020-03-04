@@ -16,8 +16,6 @@
 #define BPF_MAX_FIXUPS	64
 #define BPF_MAX_INSNS	(2 * BPF_MAXINSNS)
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
 struct bpf_map_fixup {
 	int off;
 	enum bpf_map_type type;
